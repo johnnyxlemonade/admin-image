@@ -21,9 +21,8 @@ final class ImagePackageServiceProvider implements ServiceProviderInterface
     public function register(ContainerBuilderInterface $container): void
     {
         $container->singleton(ImageVariantRegistry::class, ImageVariantRegistry::class);
-        $container->singleton(ImageUrlGenerator::class, ImageUrlGenerator::class);
         $container->scoped(ImageController::class, ImageController::class);
-        $container->singleton(ImageRouteRegistrar::class, ImageRouteRegistrar::class);
+        $container->transient(ImageRouteRegistrar::class, ImageRouteRegistrar::class);
         $container->tag(ImageRouteRegistrar::class, RouteRegistrarInterface::class);
     }
 }
