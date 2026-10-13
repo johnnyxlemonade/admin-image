@@ -31,6 +31,7 @@ use Lemonade\Framework\Image\Value\ImageVariantDefinition;
 use Lemonade\Image\Contract\ImageAssetResolverInterface;
 use Lemonade\Image\Http\Controller\ImageController;
 use Lemonade\Image\ImageIdentifier;
+use Lemonade\Image\ImageUrlGenerator;
 use Lemonade\Image\ImageVariantRegistry;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use PHPUnit\Framework\TestCase;
@@ -75,13 +76,30 @@ final class ImageControllerTest extends TestCase
         self::assertSame(1, $renderer->calls);
     }
 
+    public function testItStreamsStoredCanonicalOriginalWithoutRenderingVariant(): void
+    {
+        [$controller, $renderer, $paths] = $this->controllerWithRenderer();
+        $asset = (new RecordingAssetResolver($paths))->resolve('system.users', ImageIdentifier::fromString('123'));
+        self::assertInstanceOf(ImageAsset::class, $asset);
+        $path = $paths->originalPath($asset);
+        mkdir(dirname($path), 0775, true);
+        file_put_contents($path, 'original');
+
+        $response = $controller->show('system.users', ImageUrlGenerator::ORIGINAL_ROUTE_VARIANT, '123');
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('image/png', $response->getHeaderLine('Content-Type'));
+        self::assertSame('original', (string) $response->getBody());
+        self::assertSame(0, $renderer->calls);
+    }
+
     private function controller(): ImageController
     {
         return $this->controllerWithRenderer()[0];
     }
 
     /**
-     * @return array{ImageController, RecordingControllerVariantRenderer}
+     * @return array{ImageController, RecordingControllerVariantRenderer, ImageVariantPathResolver}
      */
     private function controllerWithRenderer(): array
     {
@@ -116,10 +134,12 @@ final class ImageControllerTest extends TestCase
                 $registry,
                 new RecordingAssetResolver($paths),
                 $generator,
+                $paths,
                 $context,
                 new Responses(new ResponseBuilder($factory, $factory)),
             ),
             $renderer,
+            $paths,
         ];
     }
 

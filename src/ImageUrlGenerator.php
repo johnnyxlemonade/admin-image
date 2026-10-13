@@ -11,6 +11,8 @@ use Lemonade\Framework\Routing\UrlGenerator;
  */
 final readonly class ImageUrlGenerator
 {
+    public const ORIGINAL_ROUTE_VARIANT = 'original';
+
     /**
      * Nastavuje router a registry povolenych modulovych variant
      */
@@ -30,6 +32,20 @@ final readonly class ImageUrlGenerator
         return $this->urls->route('api.image.show', [
             'module' => $module,
             'variant' => $variant,
+            'image' => $identifier->value(),
+        ]);
+    }
+
+    /**
+     * Vraci canonical verejnou URL ulozeneho originalu bez vytvareni image varianty
+     */
+    public function originalUrl(string $module, string $imageId): string
+    {
+        $identifier = ImageIdentifier::fromString($imageId);
+
+        return $this->urls->route('api.image.show', [
+            'module' => $module,
+            'variant' => self::ORIGINAL_ROUTE_VARIANT,
             'image' => $identifier->value(),
         ]);
     }

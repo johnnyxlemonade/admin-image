@@ -10,13 +10,16 @@ use Lemonade\Framework\Http\HttpStatus;
 use Lemonade\Framework\Http\Response\Responses;
 use Lemonade\Framework\Image\Exception\ImageException;
 use Lemonade\Framework\Image\ImageVariantGenerator;
+use Lemonade\Framework\Image\ImageVariantPathResolver;
+use Lemonade\Framework\Image\Value\ImageAsset;
 use Lemonade\Image\Contract\ImageAssetResolverInterface;
 use Lemonade\Image\ImageIdentifier;
+use Lemonade\Image\ImageUrlGenerator;
 use Lemonade\Image\ImageVariantRegistry;
 use Psr\Http\Message\ResponseInterface;
 
 /**
- * Dodejva registrovane modulove image varianty pres canonical HTTP URL bez odhaleni originalu
+ * Dodejva registrovane varianty a canonical originaly pres verejne image URL
  */
 final class ImageController
 {
@@ -27,6 +30,7 @@ final class ImageController
         private readonly ImageVariantRegistry $variants,
         private readonly ImageAssetResolverInterface $sources,
         private readonly ImageVariantGenerator $generator,
+        private readonly ImageVariantPathResolver $paths,
         private readonly ApplicationContext $context,
         private readonly Responses $responses,
     ) {}
@@ -36,11 +40,6 @@ final class ImageController
      */
     public function show(string $module, string $variant, string $image): ResponseInterface
     {
-        $definition = $this->variants->get($variant);
-        if ($definition === null) {
-            return $this->notFound();
-        }
-
         try {
             $identifier = ImageIdentifier::fromString($image);
         } catch (\InvalidArgumentException) {
@@ -52,13 +51,43 @@ final class ImageController
             return $this->notFound();
         }
 
+        if ($variant === ImageUrlGenerator::ORIGINAL_ROUTE_VARIANT) {
+            return $this->original($asset);
+        }
+
+        $definition = $this->variants->get($variant);
+        if ($definition === null) {
+            return $this->notFound();
+        }
+
         try {
             $reference = $this->generator->generate($asset, $definition);
         } catch (ImageException) {
             return $this->notFound();
         }
 
-        $path = $this->context->uploadPath($reference->publicPath());
+        return $this->responseForPath(
+            path: $this->context->uploadPath($reference->publicPath()),
+            contentType: $reference->format()->mimeType(),
+        );
+    }
+
+    /**
+     * Dodejva ulozeny canonical original bez resize, cropu nebo image renderingu
+     */
+    private function original(ImageAsset $asset): ResponseInterface
+    {
+        return $this->responseForPath(
+            path: $this->paths->originalPath($asset),
+            contentType: $asset->original()->format()->mimeType(),
+        );
+    }
+
+    /**
+     * Odpovida streamem existujiciho souboru se stejnymi cache a security headery
+     */
+    private function responseForPath(string $path, string $contentType): ResponseInterface
+    {
         $size = @filesize($path);
         if (!is_int($size) || $size < 1) {
             return $this->notFound();
@@ -66,7 +95,7 @@ final class ImageController
 
         return $this->responses->stream(
             producer: fn(): Generator => $this->stream($path),
-            contentType: $reference->format()->mimeType(),
+            contentType: $contentType,
             headers: [
                 'Cache-Control' => 'public, max-age=0, must-revalidate',
                 'Content-Length' => (string) $size,

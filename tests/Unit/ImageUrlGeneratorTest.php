@@ -30,6 +30,15 @@ final class ImageUrlGeneratorTest extends TestCase
         self::assertSame('/api/image/cms.news/card/novinka-123', $generator->url('cms.news', 'card', 'novinka-123'));
     }
 
+    public function testItBuildsCanonicalOriginalUrlWithoutVariantDefinition(): void
+    {
+        $router = new Router();
+        (new ImageRouteRegistrar())->registerRoutes($router);
+        $generator = new ImageUrlGenerator(new UrlGenerator($router), new ImageVariantRegistry());
+
+        self::assertSame('/api/image/cms.news/original/novinka-123', $generator->originalUrl('cms.news', 'novinka-123'));
+    }
+
     public function testItRejectsUnsafeIdentifierAndUnknownVariant(): void
     {
         $this->expectException(\InvalidArgumentException::class);
