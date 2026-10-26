@@ -4,43 +4,36 @@ declare(strict_types=1);
 
 namespace Lemonade\Image\Routing;
 
+use Lemonade\Framework\Api\Endpoint\ApiAccess;
+use Lemonade\Framework\Api\Endpoint\ApiEndpointMetadata;
+use Lemonade\Framework\Api\Endpoint\ApiEndpointProviderInterface;
+use Lemonade\Framework\Api\Endpoint\ApiEndpointRegistry;
 use Lemonade\Framework\Routing\ControllerAction;
-use Lemonade\Framework\Routing\Router;
-use Lemonade\Framework\Routing\RouteRegistrarInterface;
 use Lemonade\Image\Http\Controller\ImageController;
 
 /**
- * Registruje jedinou verejnou route pro modulove image varianty
+ * Registruje verejny API endpoint pro modulove image varianty a originaly
  */
-final class ImageRouteRegistrar implements RouteRegistrarInterface
+final readonly class ImageRouteRegistrar implements ApiEndpointProviderInterface
 {
     /**
-     * Vraci stabilni identifikator package-owned image route contribution
+     * Pripojuje canonical public image route do Framework API registry
      */
-    public function id(): string
+    public function register(ApiEndpointRegistry $registry): void
     {
-        return 'image.public-api';
-    }
-
-    /**
-     * Vraci neutralni poradi pro verejnou package route bez host precedence
-     */
-    public function priority(): int
-    {
-        return 0;
-    }
-
-    /**
-     * Pripojuje canonical API image route do host routeru
-     */
-    public function registerRoutes(Router $router): void
-    {
-        $router->getNamed(
-            name: 'api.image.show',
-            path: '/api/image/{module}/{variant}/{image}',
-            action: ControllerAction::for(
+        $registry->get(
+            path: '/image/{module}/{variant}/{image}',
+            controllerAction: ControllerAction::for(
                 controllerClass: ImageController::class,
                 method: 'show',
+            ),
+            name: 'api.image.show',
+            summary: 'Public image delivery',
+            description: 'Returns a registered image variant or its canonical original.',
+            access: ApiAccess::Public,
+            metadata: new ApiEndpointMetadata(
+                tags: ['Images'],
+                responseContentType: 'application/octet-stream',
             ),
         );
     }

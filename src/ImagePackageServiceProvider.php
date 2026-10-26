@@ -14,24 +14,20 @@ use Lemonade\Framework\Image\Value\ImageQuality;
 use Lemonade\Framework\Image\Value\ImageScalePolicy;
 use Lemonade\Framework\Image\Value\ImageVariantDefinition;
 use Lemonade\Framework\Image\Value\ImageVariantMode;
-use Lemonade\Framework\Routing\RouteRegistrarInterface;
 use Lemonade\Image\Http\Controller\ImageController;
-use Lemonade\Image\Routing\ImageRouteRegistrar;
 
 /**
  * Registruje sdílenou image infrastrukturu a základní veřejné varianty používané napříč moduly
  */
-final class ImagePackageServiceProvider implements ServiceProviderInterface, BootableServiceProviderInterface
+final readonly class ImagePackageServiceProvider implements ServiceProviderInterface, BootableServiceProviderInterface
 {
     /**
-     * Registruje registry variant, image controller a route registrar
+     * Registruje registry variant a image controller
      */
     public function register(ContainerBuilderInterface $container): void
     {
         $container->singleton(ImageVariantRegistry::class, ImageVariantRegistry::class);
         $container->scoped(ImageController::class, ImageController::class);
-        $container->transient(ImageRouteRegistrar::class, ImageRouteRegistrar::class);
-        $container->tag(ImageRouteRegistrar::class, RouteRegistrarInterface::class);
     }
 
     /**

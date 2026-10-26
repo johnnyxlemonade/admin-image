@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Lemonade\Image\Tests\Unit;
 
+use Lemonade\Framework\Api\Endpoint\ApiEndpointRegistrar;
+use Lemonade\Framework\Api\Endpoint\ApiEndpointRegistry;
 use Lemonade\Framework\Image\Value\ImageBackground;
 use Lemonade\Framework\Image\Value\ImageDimensions;
 use Lemonade\Framework\Image\Value\ImageFormat;
@@ -24,7 +26,7 @@ final class ImageUrlGeneratorTest extends TestCase
         $registry = new ImageVariantRegistry();
         $registry->register('card', $this->definition());
         $router = new Router();
-        (new ImageRouteRegistrar())->registerRoutes($router);
+        $this->registerImageRoute($router);
         $generator = new ImageUrlGenerator(new UrlGenerator($router), $registry);
 
         self::assertSame('/api/image/cms.news/card/novinka-123', $generator->url('cms.news', 'card', 'novinka-123'));
@@ -33,7 +35,7 @@ final class ImageUrlGeneratorTest extends TestCase
     public function testItBuildsCanonicalOriginalUrlWithoutVariantDefinition(): void
     {
         $router = new Router();
-        (new ImageRouteRegistrar())->registerRoutes($router);
+        $this->registerImageRoute($router);
         $generator = new ImageUrlGenerator(new UrlGenerator($router), new ImageVariantRegistry());
 
         self::assertSame('/api/image/cms.news/original/novinka-123', $generator->originalUrl('cms.news', 'novinka-123'));
@@ -53,5 +55,12 @@ final class ImageUrlGeneratorTest extends TestCase
             ImageQuality::fromInt(82),
             ImageBackground::color('#ffffff'),
         );
+    }
+
+    private function registerImageRoute(Router $router): void
+    {
+        $endpoints = new ApiEndpointRegistry();
+        (new ImageRouteRegistrar())->register($endpoints);
+        (new ApiEndpointRegistrar($router, $endpoints))->registerRoutes('/api');
     }
 }
