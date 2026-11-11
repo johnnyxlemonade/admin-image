@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Lemonade\Image\Http\Controller;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use Generator;
 use Lemonade\Framework\Core\Context\ApplicationContext;
 use Lemonade\Framework\Http\HttpStatus;
@@ -17,29 +19,25 @@ use Lemonade\Image\ImageIdentifier;
 use Lemonade\Image\ImageUrlGenerator;
 use Lemonade\Image\ImageVariantRegistry;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 
-/**
- * Dodejva registrovane varianty a canonical originaly pres verejne image URL
- */
-final class ImageController
+final readonly class ImageController
 {
-    /**
-     * Nastavuje registry variant, zdrojovy resolver, Framework generator a streamed HTTP odpovedi
-     */
     public function __construct(
-        private readonly ImageVariantRegistry $variants,
-        private readonly ImageAssetResolverInterface $sources,
-        private readonly ImageVariantGenerator $generator,
-        private readonly ImageVariantPathResolver $paths,
-        private readonly ApplicationContext $context,
-        private readonly Responses $responses,
+        private ImageVariantRegistry $variants,
+        private ImageAssetResolverInterface $sources,
+        private ImageVariantGenerator $generator,
+        private ImageVariantPathResolver $paths,
+        private ApplicationContext $context,
+        private Responses $responses,
     ) {}
 
-    /**
-     * Vraci cached nebo nove vytvorenou variantu, jinak prazdnou 404 odpoved
-     */
-    public function show(string $module, string $variant, string $image): ResponseInterface
-    {
+    public function show(
+        string $module,
+        string $variant,
+        string $image,
+        ServerRequestInterface $request,
+    ): ResponseInterface {
         try {
             $identifier = ImageIdentifier::fromString($image);
         } catch (\InvalidArgumentException) {
@@ -52,7 +50,7 @@ final class ImageController
         }
 
         if ($variant === ImageUrlGenerator::ORIGINAL_ROUTE_VARIANT) {
-            return $this->original($asset);
+            return $this->original($asset, $request);
         }
 
         $definition = $this->variants->get($variant);
@@ -69,52 +67,142 @@ final class ImageController
         return $this->responseForPath(
             path: $this->context->uploadPath($reference->publicPath()),
             contentType: $reference->format()->mimeType(),
+            request: $request,
         );
     }
 
-    /**
-     * Dodejva ulozeny canonical original bez resize, cropu nebo image renderingu
-     */
-    private function original(ImageAsset $asset): ResponseInterface
+    private function original(ImageAsset $asset, ServerRequestInterface $request): ResponseInterface
     {
         return $this->responseForPath(
             path: $this->paths->originalPath($asset),
             contentType: $asset->original()->format()->mimeType(),
+            request: $request,
         );
     }
 
-    /**
-     * Odpovida streamem existujiciho souboru se stejnymi cache a security headery
-     */
-    private function responseForPath(string $path, string $contentType): ResponseInterface
-    {
+    private function responseForPath(
+        string $path,
+        string $contentType,
+        ServerRequestInterface $request,
+    ): ResponseInterface {
+        clearstatcache();
         $size = @filesize($path);
-        if (!is_int($size) || $size < 1) {
+        $modifiedAt = @filemtime($path);
+        if (!is_int($size) || $size < 1 || !is_int($modifiedAt)) {
             return $this->notFound();
         }
 
-        return $this->responses->stream(
-            producer: fn(): Generator => $this->stream($path),
-            contentType: $contentType,
-            headers: [
-                'Cache-Control' => 'public, max-age=0, must-revalidate',
-                'Content-Length' => (string) $size,
-                'X-Content-Type-Options' => 'nosniff',
-            ],
-        );
+        $hash = @hash_file('sha256', $path);
+        if ($hash === false) {
+            return $this->notFound();
+        }
+
+        $etag = '"' . $hash . '"';
+        $modifiedAt = min($modifiedAt, time());
+        $cacheHeaders = [
+            'Cache-Control' => 'public, max-age=0, must-revalidate',
+            'ETag' => $etag,
+            'Last-Modified' => gmdate('D, d M Y H:i:s', $modifiedAt) . ' GMT',
+            'X-Content-Type-Options' => 'nosniff',
+        ];
+
+        if ($this->isNotModified($request, $etag, $modifiedAt)) {
+            $response = $this->responses
+                ->text('', HttpStatus::NOT_MODIFIED->value)
+                ->withoutHeader('Content-Type');
+        } else {
+            $response = $this->responses->stream(
+                producer: fn(): Generator => $this->stream($path),
+                contentType: $contentType,
+                headers: ['Content-Length' => (string) $size],
+            );
+        }
+
+        foreach ($cacheHeaders as $name => $value) {
+            $response = $response->withHeader($name, $value);
+        }
+
+        return $response;
     }
 
-    /**
-     * Vraci prazdnou 404 odpoved bez informace o module storage stavu
-     */
+    private function isNotModified(ServerRequestInterface $request, string $etag, int $modifiedAt): bool
+    {
+        // I prazdne If-None-Match ma prednost pred If-Modified-Since.
+        if ($request->hasHeader('If-None-Match')) {
+            return $this->matchesEtag($request->getHeaderLine('If-None-Match'), $etag);
+        }
+
+        $modifiedSince = $this->httpDateTimestamp(trim($request->getHeaderLine('If-Modified-Since')));
+
+        return $modifiedSince !== null && $modifiedAt <= $modifiedSince;
+    }
+
+    private function matchesEtag(string $header, string $etag): bool
+    {
+        foreach (explode(',', $header) as $candidate) {
+            if (in_array(trim($candidate), ['*', $etag, 'W/' . $etag], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function httpDateTimestamp(string $value): ?int
+    {
+        $parts = explode(' ', $value, 2);
+        if (count($parts) !== 2) {
+            return null;
+        }
+
+        $timezone = new DateTimeZone('GMT');
+        $formats = [
+            'D, ' => 'd M Y H:i:s \G\M\T',
+            'l, ' => 'd-M-y H:i:s \G\M\T',
+            'D ' => 'M d H:i:s Y',
+        ];
+
+        foreach ($formats as $weekdayFormat => $dateFormat) {
+            // Den tydne overi zpetny prevod; pri parsovani by mohl posunout datum.
+            $date = DateTimeImmutable::createFromFormat('!' . $dateFormat, $parts[1], $timezone);
+            if ($date === false || DateTimeImmutable::getLastErrors() !== false) {
+                continue;
+            }
+
+            if ($weekdayFormat === 'l, ') {
+                $date = $this->resolveRfc850Year($date);
+            }
+
+            $formatted = $date->format($weekdayFormat . $dateFormat);
+            if ($weekdayFormat === 'D ') {
+                $day = str_pad($date->format('j'), 2, ' ', STR_PAD_LEFT);
+                $formatted = $date->format('D M ') . $day . $date->format(' H:i:s Y');
+            }
+
+            if ($formatted === $value) {
+                return $date->getTimestamp();
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveRfc850Year(DateTimeImmutable $date): DateTimeImmutable
+    {
+        // RFC 850: pouzij posledni odpovidajici rok nejvyse 50 let v budoucnosti.
+        $limit = (new DateTimeImmutable('now', $date->getTimezone()))->modify('+50 years');
+        $year = intdiv((int) $limit->format('Y'), 100) * 100 + (int) $date->format('y');
+        $date = $date->setDate($year, (int) $date->format('m'), (int) $date->format('d'));
+
+        return $date > $limit ? $date->modify('-100 years') : $date;
+    }
+
     private function notFound(): ResponseInterface
     {
         return $this->responses->text('', HttpStatus::NOT_FOUND->value);
     }
 
     /**
-     * Cte variantu po blocich bez nacteni celeho cached souboru do pameti
-     *
      * @return Generator<int, string>
      */
     private function stream(string $path): Generator

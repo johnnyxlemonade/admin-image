@@ -34,6 +34,7 @@ use Lemonade\Image\ImageIdentifier;
 use Lemonade\Image\ImageUrlGenerator;
 use Lemonade\Image\ImageVariantRegistry;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
 final class ImageControllerTest extends TestCase
@@ -56,27 +57,170 @@ final class ImageControllerTest extends TestCase
     {
         $controller = $this->controller();
 
-        self::assertSame(404, $controller->show('system.users', 'unknown', '123')->getStatusCode());
-        self::assertSame(404, $controller->show('wrong.module', 'card', '123')->getStatusCode());
-        self::assertSame(404, $controller->show('system.users', 'card', 'missing')->getStatusCode());
+        $request = $this->request();
+
+        self::assertSame(404, $controller->show('system.users', 'unknown', '123', $request)->getStatusCode());
+        self::assertSame(404, $controller->show('wrong.module', 'card', '123', $request)->getStatusCode());
+        self::assertSame(404, $controller->show('system.users', 'card', 'missing', $request)->getStatusCode());
     }
 
     public function testItStreamsFrameworkGeneratedVariantWithCorrectMimeAndCacheHit(): void
     {
         [$controller, $renderer] = $this->controllerWithRenderer();
 
-        $first = $controller->show('system.users', 'card', '123');
-        $second = $controller->show('system.users', 'card', '123');
+        $first = $controller->show('system.users', 'card', '123', $this->request());
+        $second = $controller->show('system.users', 'card', '123', $this->request());
 
         self::assertSame(200, $first->getStatusCode());
         self::assertSame('image/webp', $first->getHeaderLine('Content-Type'));
         self::assertSame('nosniff', $first->getHeaderLine('X-Content-Type-Options'));
+        self::assertNotSame('', $first->getHeaderLine('ETag'));
+        self::assertNotSame('', $first->getHeaderLine('Last-Modified'));
         self::assertSame('variant', (string) $first->getBody());
         self::assertSame(200, $second->getStatusCode());
         self::assertSame(1, $renderer->calls);
     }
 
     public function testItStreamsStoredCanonicalOriginalWithoutRenderingVariant(): void
+    {
+        [$controller, $renderer] = $this->storedOriginal();
+
+        $response = $controller->show(
+            'system.users',
+            ImageUrlGenerator::ORIGINAL_ROUTE_VARIANT,
+            '123',
+            $this->request(),
+        );
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('image/png', $response->getHeaderLine('Content-Type'));
+        self::assertSame('original', (string) $response->getBody());
+        self::assertSame(0, $renderer->calls);
+    }
+
+    public function testItReturns304ForMatchingEtagWithoutStreamingTheBody(): void
+    {
+        [$controller, $renderer] = $this->controllerWithRenderer();
+        $first = $controller->show('system.users', 'card', '123', $this->request());
+
+        $response = $controller->show(
+            'system.users',
+            'card',
+            '123',
+            $this->request()->withHeader('If-None-Match', $first->getHeaderLine('ETag')),
+        );
+
+        self::assertSame(304, $response->getStatusCode());
+        self::assertSame('', (string) $response->getBody());
+        self::assertSame('', $response->getHeaderLine('Content-Type'));
+        self::assertSame('', $response->getHeaderLine('Content-Length'));
+        self::assertSame('public, max-age=0, must-revalidate', $response->getHeaderLine('Cache-Control'));
+        self::assertSame('nosniff', $response->getHeaderLine('X-Content-Type-Options'));
+        self::assertSame($first->getHeaderLine('ETag'), $response->getHeaderLine('ETag'));
+        self::assertSame($first->getHeaderLine('Last-Modified'), $response->getHeaderLine('Last-Modified'));
+        self::assertSame(1, $renderer->calls);
+    }
+
+    public function testItReturns304ForUnchangedLastModifiedWhenEtagIsAbsent(): void
+    {
+        [$controller] = $this->controllerWithRenderer();
+        $first = $controller->show('system.users', 'card', '123', $this->request());
+
+        $response = $controller->show(
+            'system.users',
+            'card',
+            '123',
+            $this->request()->withHeader('If-Modified-Since', $first->getHeaderLine('Last-Modified')),
+        );
+
+        self::assertSame(304, $response->getStatusCode());
+    }
+
+    public function testIfNoneMatchTakesPrecedenceOverIfModifiedSince(): void
+    {
+        [$controller] = $this->controllerWithRenderer();
+        $first = $controller->show('system.users', 'card', '123', $this->request());
+        foreach (['"different-representation"', '', 'invalid'] as $etag) {
+            $request = $this->request()
+                ->withHeader('If-None-Match', $etag)
+                ->withHeader('If-Modified-Since', $first->getHeaderLine('Last-Modified'));
+
+            self::assertSame(200, $controller->show('system.users', 'card', '123', $request)->getStatusCode());
+        }
+
+        foreach (['W/' . $first->getHeaderLine('ETag'), '"other", W/' . $first->getHeaderLine('ETag'), '*'] as $etag) {
+            $request = $this->request()
+                ->withHeader('If-None-Match', $etag)
+                ->withHeader('If-Modified-Since', 'Sun, 06 Nov 1994 08:49:37 GMT');
+
+            self::assertSame(304, $controller->show('system.users', 'card', '123', $request)->getStatusCode());
+        }
+    }
+
+    public function testChangedBytesAtSamePathInvalidateEtagEvenWithSameSizeAndMtime(): void
+    {
+        [$controller, $renderer, $path] = $this->storedOriginal();
+        $first = $controller->show('system.users', 'original', '123', $this->request());
+        $modifiedAt = filemtime($path);
+        self::assertIsInt($modifiedAt);
+
+        file_put_contents($path, 'replaced');
+        touch($path, $modifiedAt);
+        $request = $this->request()
+            ->withHeader('If-None-Match', $first->getHeaderLine('ETag'))
+            ->withHeader('If-Modified-Since', $first->getHeaderLine('Last-Modified'));
+        $response = $controller->show('system.users', 'original', '123', $request);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertNotSame($first->getHeaderLine('ETag'), $response->getHeaderLine('ETag'));
+        self::assertSame('replaced', (string) $response->getBody());
+        self::assertSame(0, $renderer->calls);
+        $unchanged = $controller->show('system.users', 'original', '123', $this->request()->withHeader('If-None-Match', $response->getHeaderLine('ETag')));
+        self::assertSame(304, $unchanged->getStatusCode());
+        self::assertSame('', (string) $unchanged->getBody());
+    }
+
+    public function testInvalidHttpDatesAreIgnored(): void
+    {
+        [$controller] = $this->controllerWithRenderer();
+        foreach (['', 'tomorrow', 'not a date', 'Wed, 31 Feb 2094 08:49:37 GMT', 'Sun, 06 Nov 2094 08:49:37 UTC', 'Sun, 06 Nov 1994 08:49:37 GMT, Sun, 06 Nov 1994 08:49:37 GMT'] as $date) {
+            $response = $controller->show('system.users', 'card', '123', $this->request()->withHeader('If-Modified-Since', $date));
+            self::assertSame(200, $response->getStatusCode(), $date);
+        }
+    }
+
+    public function testAllHttpDateFormatsAreAccepted(): void
+    {
+        [$controller, , $path] = $this->storedOriginal();
+        touch($path, 784111777);
+        foreach (['Sun, 06 Nov 1994 08:49:37 GMT', 'Sunday, 06-Nov-94 08:49:37 GMT', 'Sun Nov  6 08:49:37 1994'] as $date) {
+            $response = $controller->show('system.users', 'original', '123', $this->request()->withHeader('If-Modified-Since', $date));
+            self::assertSame(304, $response->getStatusCode(), $date);
+        }
+        $older = $controller->show('system.users', 'original', '123', $this->request()->withHeader('If-Modified-Since', 'Sun, 06 Nov 1994 08:49:36 GMT'));
+        self::assertSame(200, $older->getStatusCode());
+    }
+
+    public function testFutureMtimeIsClampedForHeadersAndConditionalComparison(): void
+    {
+        [$controller, , $path] = $this->storedOriginal();
+        touch($path, time() + 86400);
+        $before = time();
+        $request = $this->request()->withHeader('If-Modified-Since', gmdate('D, d M Y H:i:s', $before + 60) . ' GMT');
+        $response = $controller->show('system.users', 'original', '123', $request);
+        $modifiedAt = \DateTimeImmutable::createFromFormat('D, d M Y H:i:s T', $response->getHeaderLine('Last-Modified'));
+
+        self::assertInstanceOf(\DateTimeImmutable::class, $modifiedAt);
+        self::assertGreaterThanOrEqual($before, $modifiedAt->getTimestamp());
+        self::assertLessThanOrEqual(time(), $modifiedAt->getTimestamp());
+        self::assertSame(304, $response->getStatusCode());
+        self::assertSame('', (string) $response->getBody());
+    }
+
+    /**
+     * @return array{ImageController, RecordingControllerVariantRenderer, string}
+     */
+    private function storedOriginal(): array
     {
         [$controller, $renderer, $paths] = $this->controllerWithRenderer();
         $asset = (new RecordingAssetResolver($paths))->resolve('system.users', ImageIdentifier::fromString('123'));
@@ -85,12 +229,12 @@ final class ImageControllerTest extends TestCase
         mkdir(dirname($path), 0775, true);
         file_put_contents($path, 'original');
 
-        $response = $controller->show('system.users', ImageUrlGenerator::ORIGINAL_ROUTE_VARIANT, '123');
+        return [$controller, $renderer, $path];
+    }
 
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame('image/png', $response->getHeaderLine('Content-Type'));
-        self::assertSame('original', (string) $response->getBody());
-        self::assertSame(0, $renderer->calls);
+    private function request(): ServerRequest
+    {
+        return new ServerRequest('GET', '/api/image/system.users/card/123');
     }
 
     private function controller(): ImageController
