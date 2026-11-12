@@ -7,7 +7,7 @@ namespace Lemonade\Image;
 use Lemonade\Framework\Image\Value\ImageVariantDefinition;
 
 /**
- * Eviduje pojmenovane Framework varianty, ktere moduly povoluji pro verejne image URL
+ * Stores named Framework variants available through public image URLs
  */
 final class ImageVariantRegistry
 {
@@ -17,7 +17,7 @@ final class ImageVariantRegistry
     private array $definitions = [];
 
     /**
-     * Registruje jedinecnou shared presentation variantu
+     * Registers a named variant and rejects invalid or duplicate names
      */
     public function register(string $variant, ImageVariantDefinition $definition): void
     {
@@ -30,7 +30,7 @@ final class ImageVariantRegistry
     }
 
     /**
-     * Vraci variantu nebo null kdyz modul ani variantu nezaregistroval
+     * Returns the registered variant or null when the name is unknown
      */
     public function get(string $variant): ?ImageVariantDefinition
     {
@@ -38,7 +38,7 @@ final class ImageVariantRegistry
     }
 
     /**
-     * Vraci povinnou variantu pro generator URL a hlasi nezaregistrovanou dvojici
+     * Returns the registered variant or throws when the name is unknown
      */
     public function require(string $variant): ImageVariantDefinition
     {
@@ -51,7 +51,7 @@ final class ImageVariantRegistry
     }
 
     /**
-     * Overuje kratke jmeno varianty bez URL nebo filesystem separatoru
+     * Validates a short variant name without URL or filesystem separators
      */
     private function assertVariant(string $variant): void
     {

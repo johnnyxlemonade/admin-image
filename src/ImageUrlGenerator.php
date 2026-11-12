@@ -7,14 +7,14 @@ namespace Lemonade\Image;
 use Lemonade\Framework\Routing\UrlGenerator;
 
 /**
- * Vytvari canonical verejne URL registrovanych modulovych image variant
+ * Builds public image URLs from registered variants and global file IDs
  */
 final readonly class ImageUrlGenerator
 {
     public const ORIGINAL_ROUTE_VARIANT = 'original';
 
     /**
-     * Nastavuje router a registry povolenych modulovych variant
+     * Connects URL generation to the registered image variants
      */
     public function __construct(
         private UrlGenerator $urls,
@@ -22,31 +22,33 @@ final readonly class ImageUrlGenerator
     ) {}
 
     /**
-     * Vraci canonical URL bez pripony; vystupni format urcuje registrovana varianta
+     * Returns an extensionless URL; the registered variant determines the output format
      */
-    public function url(string $module, string $variant, string $imageId): string
+    public function url(string $variant, int $fileId): string
     {
         $this->variants->require($variant);
-        $identifier = ImageIdentifier::fromString($imageId);
+        if ($fileId < 1) {
+            throw new \InvalidArgumentException('Image file ID must be positive.');
+        }
 
         return $this->urls->route('api.image.show', [
-            'module' => $module,
             'variant' => $variant,
-            'image' => $identifier->value(),
+            'fileId' => $fileId,
         ]);
     }
 
     /**
-     * Vraci canonical verejnou URL ulozeneho originalu bez vytvareni image varianty
+     * Returns the stored original URL without requiring a variant definition
      */
-    public function originalUrl(string $module, string $imageId): string
+    public function originalUrl(int $fileId): string
     {
-        $identifier = ImageIdentifier::fromString($imageId);
+        if ($fileId < 1) {
+            throw new \InvalidArgumentException('Image file ID must be positive.');
+        }
 
         return $this->urls->route('api.image.show', [
-            'module' => $module,
             'variant' => self::ORIGINAL_ROUTE_VARIANT,
-            'image' => $identifier->value(),
+            'fileId' => $fileId,
         ]);
     }
 }

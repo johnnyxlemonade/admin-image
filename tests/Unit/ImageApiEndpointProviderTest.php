@@ -14,12 +14,12 @@ use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Overuje image route zaregistrovanou pres Framework API registry
+ * Verifies image delivery registration through the Framework API registry
  */
 final class ImageApiEndpointProviderTest extends TestCase
 {
     /**
-     * Overuje public policy, puvodni URL a parametry canonical RouteMatch
+     * Verifies public access, the image URL, and matched route parameters
      */
     public function testItRegistersPublicParameterizedImageEndpoint(): void
     {
@@ -30,20 +30,19 @@ final class ImageApiEndpointProviderTest extends TestCase
 
         self::assertNotNull($endpoint);
         self::assertSame(ApiAccess::Public, $endpoint->access());
-        self::assertSame('/image/{module}/{variant}/{image}', $endpoint->path());
+        self::assertSame('/image/{variant}/{fileId}', $endpoint->path());
         self::assertSame(ImageController::class, $endpoint->controllerAction()->controllerClass());
 
         $router = new Router();
         (new ApiEndpointRegistrar($router, $endpoints))->registerRoutes('/api');
-        $match = $router->match(new ServerRequest('GET', '/api/image/cms.news/news-detail/42'));
+        $match = $router->match(new ServerRequest('GET', '/api/image/news-detail/42'));
 
         self::assertSame('api.image.show', $match->name());
-        self::assertSame('/api/image/{module}/{variant}/{image}', $match->path());
+        self::assertSame('/api/image/{variant}/{fileId}', $match->path());
         self::assertSame('GET', $match->method());
         self::assertSame([
-            'module' => 'cms.news',
             'variant' => 'news-detail',
-            'image' => '42',
+            'fileId' => '42',
         ], $match->params());
     }
 }

@@ -12,17 +12,17 @@ use Lemonade\Framework\Routing\ControllerAction;
 use Lemonade\Image\Http\Controller\ImageController;
 
 /**
- * Registruje verejny API endpoint pro modulove image varianty a originaly
+ * Registers the public endpoint for image variants and originals by global file ID
  */
 final readonly class ImageRouteRegistrar implements ApiEndpointProviderInterface
 {
     /**
-     * Pripojuje canonical public image route do Framework API registry
+     * Adds the public image route to the Framework API registry
      */
     public function register(ApiEndpointRegistry $registry): void
     {
         $registry->get(
-            path: '/image/{module}/{variant}/{image}',
+            path: '/image/{variant}/{fileId}',
             controllerAction: ControllerAction::for(
                 controllerClass: ImageController::class,
                 method: 'show',

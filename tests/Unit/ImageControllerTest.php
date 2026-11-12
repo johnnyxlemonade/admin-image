@@ -30,7 +30,6 @@ use Lemonade\Framework\Image\Value\ImageSource;
 use Lemonade\Framework\Image\Value\ImageVariantDefinition;
 use Lemonade\Image\Contract\ImageAssetResolverInterface;
 use Lemonade\Image\Http\Controller\ImageController;
-use Lemonade\Image\ImageIdentifier;
 use Lemonade\Image\ImageUrlGenerator;
 use Lemonade\Image\ImageVariantRegistry;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -53,23 +52,23 @@ final class ImageControllerTest extends TestCase
         $this->remove($this->root);
     }
 
-    public function testItReturns404ForUnknownVariantWrongModuleAndMissingImage(): void
+    public function testItReturns404ForUnknownVariantInvalidIdAndMissingImage(): void
     {
         $controller = $this->controller();
 
         $request = $this->request();
 
-        self::assertSame(404, $controller->show('system.users', 'unknown', '123', $request)->getStatusCode());
-        self::assertSame(404, $controller->show('wrong.module', 'card', '123', $request)->getStatusCode());
-        self::assertSame(404, $controller->show('system.users', 'card', 'missing', $request)->getStatusCode());
+        self::assertSame(404, $controller->show('unknown', '123', $request)->getStatusCode());
+        self::assertSame(404, $controller->show('card', 'missing', $request)->getStatusCode());
+        self::assertSame(404, $controller->show('card', '456', $request)->getStatusCode());
     }
 
     public function testItStreamsFrameworkGeneratedVariantWithCorrectMimeAndCacheHit(): void
     {
         [$controller, $renderer] = $this->controllerWithRenderer();
 
-        $first = $controller->show('system.users', 'card', '123', $this->request());
-        $second = $controller->show('system.users', 'card', '123', $this->request());
+        $first = $controller->show('card', '123', $this->request());
+        $second = $controller->show('card', '123', $this->request());
 
         self::assertSame(200, $first->getStatusCode());
         self::assertSame('image/webp', $first->getHeaderLine('Content-Type'));
@@ -86,7 +85,6 @@ final class ImageControllerTest extends TestCase
         [$controller, $renderer] = $this->storedOriginal();
 
         $response = $controller->show(
-            'system.users',
             ImageUrlGenerator::ORIGINAL_ROUTE_VARIANT,
             '123',
             $this->request(),
@@ -101,10 +99,9 @@ final class ImageControllerTest extends TestCase
     public function testItReturns304ForMatchingEtagWithoutStreamingTheBody(): void
     {
         [$controller, $renderer] = $this->controllerWithRenderer();
-        $first = $controller->show('system.users', 'card', '123', $this->request());
+        $first = $controller->show('card', '123', $this->request());
 
         $response = $controller->show(
-            'system.users',
             'card',
             '123',
             $this->request()->withHeader('If-None-Match', $first->getHeaderLine('ETag')),
@@ -124,10 +121,9 @@ final class ImageControllerTest extends TestCase
     public function testItReturns304ForUnchangedLastModifiedWhenEtagIsAbsent(): void
     {
         [$controller] = $this->controllerWithRenderer();
-        $first = $controller->show('system.users', 'card', '123', $this->request());
+        $first = $controller->show('card', '123', $this->request());
 
         $response = $controller->show(
-            'system.users',
             'card',
             '123',
             $this->request()->withHeader('If-Modified-Since', $first->getHeaderLine('Last-Modified')),
@@ -139,13 +135,13 @@ final class ImageControllerTest extends TestCase
     public function testIfNoneMatchTakesPrecedenceOverIfModifiedSince(): void
     {
         [$controller] = $this->controllerWithRenderer();
-        $first = $controller->show('system.users', 'card', '123', $this->request());
+        $first = $controller->show('card', '123', $this->request());
         foreach (['"different-representation"', '', 'invalid'] as $etag) {
             $request = $this->request()
                 ->withHeader('If-None-Match', $etag)
                 ->withHeader('If-Modified-Since', $first->getHeaderLine('Last-Modified'));
 
-            self::assertSame(200, $controller->show('system.users', 'card', '123', $request)->getStatusCode());
+            self::assertSame(200, $controller->show('card', '123', $request)->getStatusCode());
         }
 
         foreach (['W/' . $first->getHeaderLine('ETag'), '"other", W/' . $first->getHeaderLine('ETag'), '*'] as $etag) {
@@ -153,14 +149,14 @@ final class ImageControllerTest extends TestCase
                 ->withHeader('If-None-Match', $etag)
                 ->withHeader('If-Modified-Since', 'Sun, 06 Nov 1994 08:49:37 GMT');
 
-            self::assertSame(304, $controller->show('system.users', 'card', '123', $request)->getStatusCode());
+            self::assertSame(304, $controller->show('card', '123', $request)->getStatusCode());
         }
     }
 
     public function testChangedBytesAtSamePathInvalidateEtagEvenWithSameSizeAndMtime(): void
     {
         [$controller, $renderer, $path] = $this->storedOriginal();
-        $first = $controller->show('system.users', 'original', '123', $this->request());
+        $first = $controller->show('original', '123', $this->request());
         $modifiedAt = filemtime($path);
         self::assertIsInt($modifiedAt);
 
@@ -169,13 +165,13 @@ final class ImageControllerTest extends TestCase
         $request = $this->request()
             ->withHeader('If-None-Match', $first->getHeaderLine('ETag'))
             ->withHeader('If-Modified-Since', $first->getHeaderLine('Last-Modified'));
-        $response = $controller->show('system.users', 'original', '123', $request);
+        $response = $controller->show('original', '123', $request);
 
         self::assertSame(200, $response->getStatusCode());
         self::assertNotSame($first->getHeaderLine('ETag'), $response->getHeaderLine('ETag'));
         self::assertSame('replaced', (string) $response->getBody());
         self::assertSame(0, $renderer->calls);
-        $unchanged = $controller->show('system.users', 'original', '123', $this->request()->withHeader('If-None-Match', $response->getHeaderLine('ETag')));
+        $unchanged = $controller->show('original', '123', $this->request()->withHeader('If-None-Match', $response->getHeaderLine('ETag')));
         self::assertSame(304, $unchanged->getStatusCode());
         self::assertSame('', (string) $unchanged->getBody());
     }
@@ -184,7 +180,7 @@ final class ImageControllerTest extends TestCase
     {
         [$controller] = $this->controllerWithRenderer();
         foreach (['', 'tomorrow', 'not a date', 'Wed, 31 Feb 2094 08:49:37 GMT', 'Sun, 06 Nov 2094 08:49:37 UTC', 'Sun, 06 Nov 1994 08:49:37 GMT, Sun, 06 Nov 1994 08:49:37 GMT'] as $date) {
-            $response = $controller->show('system.users', 'card', '123', $this->request()->withHeader('If-Modified-Since', $date));
+            $response = $controller->show('card', '123', $this->request()->withHeader('If-Modified-Since', $date));
             self::assertSame(200, $response->getStatusCode(), $date);
         }
     }
@@ -194,10 +190,10 @@ final class ImageControllerTest extends TestCase
         [$controller, , $path] = $this->storedOriginal();
         touch($path, 784111777);
         foreach (['Sun, 06 Nov 1994 08:49:37 GMT', 'Sunday, 06-Nov-94 08:49:37 GMT', 'Sun Nov  6 08:49:37 1994'] as $date) {
-            $response = $controller->show('system.users', 'original', '123', $this->request()->withHeader('If-Modified-Since', $date));
+            $response = $controller->show('original', '123', $this->request()->withHeader('If-Modified-Since', $date));
             self::assertSame(304, $response->getStatusCode(), $date);
         }
-        $older = $controller->show('system.users', 'original', '123', $this->request()->withHeader('If-Modified-Since', 'Sun, 06 Nov 1994 08:49:36 GMT'));
+        $older = $controller->show('original', '123', $this->request()->withHeader('If-Modified-Since', 'Sun, 06 Nov 1994 08:49:36 GMT'));
         self::assertSame(200, $older->getStatusCode());
     }
 
@@ -207,7 +203,7 @@ final class ImageControllerTest extends TestCase
         touch($path, time() + 86400);
         $before = time();
         $request = $this->request()->withHeader('If-Modified-Since', gmdate('D, d M Y H:i:s', $before + 60) . ' GMT');
-        $response = $controller->show('system.users', 'original', '123', $request);
+        $response = $controller->show('original', '123', $request);
         $modifiedAt = \DateTimeImmutable::createFromFormat('D, d M Y H:i:s T', $response->getHeaderLine('Last-Modified'));
 
         self::assertInstanceOf(\DateTimeImmutable::class, $modifiedAt);
@@ -223,7 +219,7 @@ final class ImageControllerTest extends TestCase
     private function storedOriginal(): array
     {
         [$controller, $renderer, $paths] = $this->controllerWithRenderer();
-        $asset = (new RecordingAssetResolver($paths))->resolve('system.users', ImageIdentifier::fromString('123'));
+        $asset = (new RecordingAssetResolver($paths))->resolve(123);
         self::assertInstanceOf(ImageAsset::class, $asset);
         $path = $paths->originalPath($asset);
         mkdir(dirname($path), 0775, true);
@@ -234,7 +230,7 @@ final class ImageControllerTest extends TestCase
 
     private function request(): ServerRequest
     {
-        return new ServerRequest('GET', '/api/image/system.users/card/123');
+        return new ServerRequest('GET', '/api/image/card/123');
     }
 
     private function controller(): ImageController
@@ -324,18 +320,18 @@ final class RecordingControllerVariantRenderer implements ImageVariantRendererIn
 }
 
 /**
- * Poskytuje jednu aktivni DB-like image identity bez filesystem lookupu
+ * Resolves a single file ID without querying persistence
  */
 final readonly class RecordingAssetResolver implements ImageAssetResolverInterface
 {
     /**
-     * Nastavuje Framework resolver canonical original reference
+     * Uses Framework paths to resolve the stored original reference
      */
     public function __construct(private ImageVariantPathResolver $paths) {}
 
-    public function resolve(string $module, ImageIdentifier $identifier): ?ImageAsset
+    public function resolve(int $fileId): ?ImageAsset
     {
-        if ($module !== 'system.users' || $identifier->value() !== '123') {
+        if ($fileId !== 123) {
             return null;
         }
 

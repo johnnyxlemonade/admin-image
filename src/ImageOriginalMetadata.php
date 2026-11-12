@@ -7,12 +7,12 @@ namespace Lemonade\Image;
 use Lemonade\Framework\Image\Value\ImageFormat;
 
 /**
- * Nese overena metadata canonical originalu ulozeneho Framework image pipeline
+ * Exposes metadata of an original stored by the Framework image pipeline
  */
 final readonly class ImageOriginalMetadata
 {
     /**
-     * Nastavuje puvodni nazev, skutecny format, velikost a rozmery ulozeneho originalu
+     * Initializes the stored original filename, detected format, size, and dimensions
      */
     public function __construct(
         private string $originalFilename,
@@ -23,7 +23,7 @@ final readonly class ImageOriginalMetadata
     ) {}
 
     /**
-     * Vraci puvodni nazev souboru bez filesystemove cesty
+     * Returns the original filename without a filesystem path
      */
     public function originalFilename(): string
     {
@@ -31,7 +31,7 @@ final readonly class ImageOriginalMetadata
     }
 
     /**
-     * Vraci Frameworkem overeny format ulozeneho originalu
+     * Returns the format detected by the Framework image pipeline
      */
     public function format(): ImageFormat
     {
@@ -39,7 +39,7 @@ final readonly class ImageOriginalMetadata
     }
 
     /**
-     * Vraci velikost ulozeneho originalu v bytech
+     * Returns the stored original size in bytes
      */
     public function size(): int
     {
@@ -47,7 +47,7 @@ final readonly class ImageOriginalMetadata
     }
 
     /**
-     * Vraci sirku ulozeneho originalu v pixelech
+     * Returns the stored original width in pixels
      */
     public function width(): int
     {
@@ -55,7 +55,7 @@ final readonly class ImageOriginalMetadata
     }
 
     /**
-     * Vraci vysku ulozeneho originalu v pixelech
+     * Returns the stored original height in pixels
      */
     public function height(): int
     {

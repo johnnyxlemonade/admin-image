@@ -15,14 +15,19 @@ use Lemonade\Framework\Image\ImageVariantGenerator;
 use Lemonade\Framework\Image\ImageVariantPathResolver;
 use Lemonade\Framework\Image\Value\ImageAsset;
 use Lemonade\Image\Contract\ImageAssetResolverInterface;
-use Lemonade\Image\ImageIdentifier;
 use Lemonade\Image\ImageUrlGenerator;
 use Lemonade\Image\ImageVariantRegistry;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
+/**
+ * Delivers image variants and originals with content-based HTTP cache validation
+ */
 final readonly class ImageController
 {
+    /**
+     * Connects source resolution, variant generation, and HTTP delivery
+     */
     public function __construct(
         private ImageVariantRegistry $variants,
         private ImageAssetResolverInterface $sources,
@@ -32,19 +37,20 @@ final readonly class ImageController
         private Responses $responses,
     ) {}
 
+    /**
+     * Streams an available image or returns 304 for a matching cache validator, otherwise 404
+     */
     public function show(
-        string $module,
         string $variant,
-        string $image,
+        string $fileId,
         ServerRequestInterface $request,
     ): ResponseInterface {
-        try {
-            $identifier = ImageIdentifier::fromString($image);
-        } catch (\InvalidArgumentException) {
+        $id = filter_var($fileId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($id === false || (string) $id !== $fileId) {
             return $this->notFound();
         }
 
-        $asset = $this->sources->resolve($module, $identifier);
+        $asset = $this->sources->resolve($id);
         if ($asset === null) {
             return $this->notFound();
         }
@@ -127,7 +133,7 @@ final readonly class ImageController
 
     private function isNotModified(ServerRequestInterface $request, string $etag, int $modifiedAt): bool
     {
-        // I prazdne If-None-Match ma prednost pred If-Modified-Since.
+        // Even an empty If-None-Match takes precedence over If-Modified-Since.
         if ($request->hasHeader('If-None-Match')) {
             return $this->matchesEtag($request->getHeaderLine('If-None-Match'), $etag);
         }
@@ -163,7 +169,7 @@ final readonly class ImageController
         ];
 
         foreach ($formats as $weekdayFormat => $dateFormat) {
-            // Den tydne overi zpetny prevod; pri parsovani by mohl posunout datum.
+            // Validate the weekday by round-tripping; parsing it could shift the date.
             $date = DateTimeImmutable::createFromFormat('!' . $dateFormat, $parts[1], $timezone);
             if ($date === false || DateTimeImmutable::getLastErrors() !== false) {
                 continue;
@@ -189,7 +195,7 @@ final readonly class ImageController
 
     private function resolveRfc850Year(DateTimeImmutable $date): DateTimeImmutable
     {
-        // RFC 850: pouzij posledni odpovidajici rok nejvyse 50 let v budoucnosti.
+        // RFC 850: use the latest matching year no more than 50 years in the future.
         $limit = (new DateTimeImmutable('now', $date->getTimezone()))->modify('+50 years');
         $year = intdiv((int) $limit->format('Y'), 100) * 100 + (int) $date->format('y');
         $date = $date->setDate($year, (int) $date->format('m'), (int) $date->format('d'));

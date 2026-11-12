@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace Lemonade\Image\Contract;
 
 use Lemonade\Framework\Image\Value\ImageAsset;
-use Lemonade\Image\ImageIdentifier;
 
 /**
- * Prevadi verejnou modulovou image identity na aktivni Framework asset bez znalosti persistence
+ * Resolves global file IDs to Framework image assets without coupling delivery to persistence
  */
 interface ImageAssetResolverInterface
 {
     /**
-     * Vraci aktivni Framework asset nebo null kdyz image identity nelze verejne dorucit
+     * Returns an available image asset or null when the file cannot be delivered
      */
-    public function resolve(string $module, ImageIdentifier $identifier): ?ImageAsset;
+    public function resolve(int $fileId): ?ImageAsset;
 }
