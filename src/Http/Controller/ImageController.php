@@ -7,7 +7,6 @@ namespace Lemonade\Image\Http\Controller;
 use DateTimeImmutable;
 use DateTimeZone;
 use Generator;
-use Lemonade\Framework\Core\Context\ApplicationContext;
 use Lemonade\Framework\Http\HttpStatus;
 use Lemonade\Framework\Http\Response\Responses;
 use Lemonade\Framework\Image\Exception\ImageException;
@@ -33,7 +32,6 @@ final readonly class ImageController
         private ImageAssetResolverInterface $sources,
         private ImageVariantGenerator $generator,
         private ImageVariantPathResolver $paths,
-        private ApplicationContext $context,
         private Responses $responses,
     ) {}
 
@@ -71,7 +69,7 @@ final readonly class ImageController
         }
 
         return $this->responseForPath(
-            path: $this->context->uploadPath($reference->publicPath()),
+            path: $this->paths->variantPath($asset, $definition),
             contentType: $reference->format()->mimeType(),
             request: $request,
         );

@@ -35,7 +35,7 @@ final class ImageVariantFlowTest extends TestCase
     protected function setUp(): void
     {
         $this->root = sys_get_temp_dir() . '/lemonade-image-flow-' . bin2hex(random_bytes(8));
-        mkdir($this->root . '/storage/images/originals', 0775, true);
+        mkdir($this->root . '/storage/uploads/images/originals', 0775, true);
         mkdir($this->root . '/public', 0775, true);
     }
 
@@ -57,7 +57,6 @@ final class ImageVariantFlowTest extends TestCase
             $paths->originalReference(
                 'asset-123',
                 'version123',
-                \Lemonade\Framework\Image\Value\ImageOriginalStorage::Storage,
                 ImageFormat::Png,
                 new ImageDimensions(1, 1),
             ),
@@ -79,8 +78,8 @@ final class ImageVariantFlowTest extends TestCase
         $second = $generator->generate($asset, $definition);
 
         self::assertSame(1, $renderer->calls);
-        self::assertSame($first->publicPath(), $second->publicPath());
-        self::assertFileExists($context->uploadPath($first->publicPath()));
+        self::assertEquals($first, $second);
+        self::assertFileExists($paths->variantPath($asset, $definition));
     }
 
     private function remove(string $path): void

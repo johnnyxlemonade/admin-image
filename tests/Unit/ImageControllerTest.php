@@ -43,7 +43,7 @@ final class ImageControllerTest extends TestCase
     protected function setUp(): void
     {
         $this->root = sys_get_temp_dir() . '/lemonade-image-controller-' . bin2hex(random_bytes(8));
-        mkdir($this->root . '/storage/images/originals', 0775, true);
+        mkdir($this->root . '/storage/uploads/images/originals', 0775, true);
         mkdir($this->root . '/public', 0775, true);
     }
 
@@ -275,7 +275,6 @@ final class ImageControllerTest extends TestCase
                 new RecordingAssetResolver($paths),
                 $generator,
                 $paths,
-                $context,
                 new Responses(new ResponseBuilder($factory, $factory)),
             ),
             $renderer,
@@ -340,7 +339,6 @@ final readonly class RecordingAssetResolver implements ImageAssetResolverInterfa
             $this->paths->originalReference(
                 'asset-123',
                 'version123',
-                \Lemonade\Framework\Image\Value\ImageOriginalStorage::Storage,
                 ImageFormat::Png,
                 new ImageDimensions(1, 1),
             ),

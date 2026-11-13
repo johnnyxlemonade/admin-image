@@ -53,3 +53,11 @@ composer stan
 composer test
 composer qa
 ```
+
+## Private storage
+
+Image delivery streams files from the Framework path resolver. Persistent originals
+live under `storage/uploads/images/originals`; regeneratable variants live under
+`storage/cache/images`. URLs and HTTP cache validators are unchanged. Neither
+variants nor originals require direct web-server access to `public/uploads`.
+There is no legacy-path fallback: deployment must coordinate the physical data move.
